@@ -9,7 +9,7 @@ struct RawRecords {
     price_usd: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, Clone)]
 struct ReadRecords {
     region: String,
     year: String,
@@ -18,7 +18,7 @@ struct ReadRecords {
 }
 
 #[allow(dead_code)]
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct CleanRecords {
     region: String,
     year: u32,
@@ -77,13 +77,25 @@ fn write_data() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn clean(raw: ReadRecords) -> Option<CleanRecords> {
+fn clean(raw: &ReadRecords) -> Result<CleanRecords, Box<dyn Error>> {
     let region = raw.region.trim().to_string();
-    let year = raw.year.trim().parse::<u32>().ok()?;
-    let tonnes = raw.tonnes.trim().parse::<f64>().ok()?;
-    let price_usd = raw.price_usd.trim().parse::<f64>().ok()?;
+    let year = raw
+        .year
+        .trim()
+        .parse::<u32>()
+        .map_err(|e| format!("bad year value '{}': {e}", raw.year))?;
+    let tonnes = raw
+        .tonnes
+        .trim()
+        .parse::<f64>()
+        .map_err(|e| format!("bad tonnes value '{}': {e}", raw.tonnes))?;
+    let price_usd = raw
+        .price_usd
+        .trim()
+        .parse::<f64>()
+        .map_err(|e| format!("bad price value '{}': {e}", raw.price_usd))?;
 
-    Some(CleanRecords {
+    Ok(CleanRecords {
         region,
         year,
         tonnes,
@@ -102,21 +114,26 @@ fn read_data() -> Result<Vec<ReadRecords>, Box<dyn Error>> {
     Ok(records)
 }
 fn main() -> Result<(), Box<dyn Error>> {
-    let mut kept = 0;
-    let mut dropped = 0;
+    let mut kept = Vec::new();
 
     write_data()?;
     let records = read_data()?;
     for record in records {
-        match clean(record) {
-            Some(_clean_data) => {
-                kept += 1;
+        match clean(&record) {
+            Ok(_clean_data) => {
+                kept.push(_clean_data);
             }
-            None => {
-                dropped += 1;
+            Err(e) => {
+                println!("Error parsing row: {}", e);
             }
         }
     }
-    println!("Dropped {} rows and kept {} rows", dropped, kept);
+    let mut writer = csv::Writer::from_path("cleaned_cocoa_export.csv")?;
+
+    for record in kept {
+        writer.serialize(record)?
+    }
+
+    writer.flush()?;
     Ok(())
 }
